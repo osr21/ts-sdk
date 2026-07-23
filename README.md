@@ -23,6 +23,31 @@ provide a deprecation path before removing or changing an API. Patch releases
 remain backward compatible except for APIs marked `@experimental`, which may
 change in any release. The Perps APIs are currently experimental.
 
+
+## Community Tools
+
+Open-source tools built on Polymarket public APIs that complement the SDK.
+
+### 🐋 PolyWatch — Whale Tracker & Analytics Dashboard
+
+> **[osr21/Polywatch](https://github.com/osr21/Polywatch)** · MIT · TypeScript / React 19 / Node.js 24
+
+A self-hostable analytics dashboard that wraps Polymarket public APIs in a real-time UI. Useful as a reference implementation showing how to integrate the REST APIs, CLOB WebSocket feed, Gamma API, and the Perps API in a production TypeScript codebase.
+
+**Endpoints agents and bots can query:**
+
+| Endpoint | Returns |
+|---|---|
+| `GET /whales` | Live large-trade feed with USDC size filtering |
+| `GET /wallets/:address` | Wallet profiles with 0–100 insider risk scores |
+| `GET /markets/momentum` | Momentum-ranked market discovery |
+| `GET /ai/crypto-signals` | AI-generated bullish/bearish signals per market |
+| `GET /perps/instruments` | Perpetual instruments (mark/index price, funding rate, OI) |
+| `GET /perps/trades` | Recent perps trade feed |
+| `GET /stream` | SSE real-time whale trade stream |
+
+**Architecture pattern:** single Express 5 API server with an OpenAPI contract as the source of truth, Orval-generated React Query hooks, and no database — all data fetched live from Polymarket APIs. Demonstrates integrating both the prediction-market APIs and the experimental Perps API in a TypeScript monorepo (pnpm workspace, same toolchain as this repo).
+
 ## Local Development
 
 ### Requirements
