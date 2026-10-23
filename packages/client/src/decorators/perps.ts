@@ -151,6 +151,7 @@ export {
   ListPerpsFundingHistoryError,
   ListPerpsTradesError,
   OpenPerpsSessionError,
+  PerpsCredentialsCleanupError,
   RevokePerpsCredentialsError,
   TransferPerpsCollateralError,
   UpdatePerpsLeverageError,

@@ -45,6 +45,7 @@ import {
   invariant,
   isPrivateKey,
   isSameEvmAddress,
+  PolymarketError,
   type PrivateKey,
 } from '@polymarket/types';
 import { Address, Secp256k1, TypedData } from 'ox';
@@ -1153,9 +1154,35 @@ export type TransferPerpsCollateralRequest = {
 };
 
 /**
+ * Error thrown when session setup fails and the SDK cannot revoke the
+ * delegated credentials it created for that attempt.
+ *
+ * The proxy address is public and can be passed to
+ * {@link revokePerpsCredentials} to retry cleanup. This error never includes
+ * the proxy private key or secret.
+ *
+ * @experimental This API may change in a breaking way in any release, including patch releases.
+ */
+export class PerpsCredentialsCleanupError extends PolymarketError {
+  override name = 'PerpsCredentialsCleanupError' as const;
+
+  readonly cleanupStatus = 'failed' as const;
+  readonly proxy: EvmAddress;
+
+  constructor(proxy: EvmAddress, cause: unknown) {
+    super(
+      'Perps session setup failed and the newly created credentials could not be revoked.',
+      { cause },
+    );
+    this.proxy = proxy;
+  }
+}
+
+/**
  * @experimental This API may change in a breaking way in any release, including patch releases.
  */
 export type OpenPerpsSessionError =
+  | PerpsCredentialsCleanupError
   | RateLimitError
   | RequestRejectedError
   | SigningError
@@ -1166,6 +1193,7 @@ export type OpenPerpsSessionError =
  * @experimental This API may change in a breaking way in any release, including patch releases.
  */
 export const OpenPerpsSessionError = makeErrorGuard(
+  PerpsCredentialsCleanupError,
   RateLimitError,
   RequestRejectedError,
   SigningError,
@@ -1302,16 +1330,39 @@ export async function openPerpsSession(
   request: OpenPerpsSessionRequest = {},
 ): Promise<PerpsSession> {
   const params = parseUserInput(request, OpenPerpsSessionRequestSchema);
-  const credentials =
-    'credentials' in params
-      ? await resumePerpsCredentials(client, params.credentials)
-      : await createPerpsCredentials(client, params);
-  return client.webSockets.perpsSession.connect(
-    credentials,
-    params.builderAttribution,
-    approvePerpsBuilderFee.bind(null, client),
-    params.includeBuilderFills,
-  );
+  const isResuming = 'credentials' in params;
+  const credentials = isResuming
+    ? await resumePerpsCredentials(client, params.credentials)
+    : await createPerpsCredentials(client, params);
+
+  try {
+    return await client.webSockets.perpsSession.connect(
+      credentials,
+      params.builderAttribution,
+      approvePerpsBuilderFee.bind(null, client),
+      params.includeBuilderFills,
+    );
+  } catch (error) {
+    if (isResuming) throw error;
+    return await revokeCreatedPerpsCredentialsAfterFailure(
+      client,
+      credentials.proxy,
+      error,
+    );
+  }
+}
+
+async function revokeCreatedPerpsCredentialsAfterFailure(
+  client: BaseSecureClient,
+  proxy: EvmAddress,
+  cause: unknown,
+): Promise<never> {
+  try {
+    await revokePerpsCredentials(client, { proxy });
+  } catch {
+    throw new PerpsCredentialsCleanupError(proxy, cause);
+  }
+  throw cause;
 }
 
 /**
@@ -1601,7 +1652,15 @@ async function createPerpsCredentials(
     secret: response.secret,
   };
 
-  return validatePerpsCredentials(client, credentials);
+  try {
+    return await validatePerpsCredentials(client, credentials);
+  } catch (error) {
+    return await revokeCreatedPerpsCredentialsAfterFailure(
+      client,
+      proxy,
+      error,
+    );
+  }
 }
 
 async function resumePerpsCredentials(
